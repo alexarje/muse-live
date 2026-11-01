@@ -212,7 +212,10 @@ class AudioEngine:
                     period = self.click_period if self.click_mode == "metronome" else 1.0 + self.rng.uniform(-0.2, 0.2)
                     self.next_click += int(period * AUDIO_FS)
         if self.assr_on:
-            mono += 0.15 * np.sin(2 * np.pi * 1000 * t) * (0.5 + 0.5 * np.sin(2 * np.pi * 40 * t))
+            # a 40 Hz click train: broadband, so it drives the response harder than a modulated tone
+            period = AUDIO_FS / 40.0
+            phase = (self.pos + n) % period
+            mono += 0.5 * np.where(phase < 0.0015 * AUDIO_FS, np.sin(2 * np.pi * 2000 * t), 0.0)
         mono = np.clip(mono, -1, 1)
         out[:, 0] = mono * left
         out[:, 1] = mono * right

@@ -230,9 +230,11 @@ def notch_mains(x):
 
 
 class SpectrumAverager:
-    """Average power spectrum of 2 s windows, channel by channel, for the 40 Hz steady-state response.
-    The mains hum is notched out first; a channel's window is kept if its peak-to-peak after detrending stays
-    under `reject_uv`."""
+    """Average power spectrum of 4 s windows (0.25 Hz bins), stepped by 1 s, channel by channel, for the 40 Hz
+    steady-state response. The mains hum is notched out first; a channel's window is kept if its peak-to-peak
+    after detrending stays under `reject_uv`. A history of the 40 Hz ratio is kept so that a trend can be seen."""
+
+    WIN = 4
 
     def __init__(self, reject_uv=400.0):
         self.reject_uv = reject_uv
@@ -241,21 +243,25 @@ class SpectrumAverager:
         self.n = np.zeros(4, dtype=int)
         self.rejected = 0
         self.last_count = 0
+        self.history = []        # (n windows, ratio dB) after each update
 
     def update(self):
-        if eeg.count < 2 * FS or eeg.count - self.last_count < FS:
+        if eeg.count < self.WIN * FS or eeg.count - self.last_count < FS:
             return
         self.last_count = eeg.count
-        x = _detrend(notch_mains(eeg.last(2)))
+        x = _detrend(notch_mains(eeg.last(self.WIN)))
         ok = np.ptp(x, axis=1) < self.reject_uv
         self.rejected += int((~ok).sum())
         if not ok.any():
             return
-        f, p = welch(x, fs=FS, nperseg=2 * FS, axis=1)
+        f, p = welch(x, fs=FS, nperseg=self.WIN * FS, axis=1)
         if self.sum is None:
             self.f, self.sum = f, np.zeros_like(p)
         self.sum[ok] += p[ok]
         self.n[ok] += 1
+        r = self.result()
+        if r is not None:
+            self.history.append((int(self.n.max()), r[3]))
 
     def result(self):
         """(f, dB spectrum 20 to 60 Hz of the kept channels, n per channel, SNR at 40 Hz against the neighbours) or None."""
@@ -264,8 +270,8 @@ class SpectrumAverager:
         keep = self.n > 0
         p = (self.sum[keep] / self.n[keep, None]).mean(axis=0)
         sel = (self.f >= 20) & (self.f <= 60)
-        at = p[np.argmin(np.abs(self.f - 40))]
-        nb = p[((self.f >= 34) & (self.f <= 38)) | ((self.f >= 42) & (self.f <= 46))].mean()
+        at = p[(self.f >= 39.75) & (self.f <= 40.25)].max()
+        nb = p[((self.f >= 35) & (self.f <= 38.5)) | ((self.f >= 41.5) & (self.f <= 45))].mean()
         return self.f[sel], 10 * np.log10(p[sel] + 1e-12), self.n, 10 * np.log10(at / (nb + 1e-12))
 
     def ylim(self):
@@ -279,4 +285,4 @@ class SpectrumAverager:
         return q.min() - 3, q.max() + 3
 
     def reset(self):
-        self.sum = None; self.n[:] = 0; self.rejected = 0
+        self.sum = None; self.n[:] = 0; self.rejected = 0; self.history = []

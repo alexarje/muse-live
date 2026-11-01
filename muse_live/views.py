@@ -37,9 +37,11 @@ HEADERS = {
         "forehead channels. This is how event-related potentials are made. Bluetooth timing jitter smears the peaks; sit still and avoid "
         "blinking.\nKey c resets the average."),
     "assr": (
-        "A 1 kHz tone pulses 40 times a second (key a). The auditory brainstem and cortex follow that rhythm, so an averaged spectrum "
-        "of the EEG should grow a peak at exactly 40 Hz.\nThis is the auditory steady-state response, an entrainment measured in the "
-        "brain. With four dry electrodes it is marginal; the number on the right is the peak against its\nneighbours. The tall peak at 50 Hz is the mains hum, picked up by the body as an antenna, not the brain; it is notched out of the average. Key c resets."),
+        "A click train at 40 per second plays (key a stops it); use headphones or earbuds, loud but comfortable. The auditory brainstem and "
+        "cortex follow that rhythm, so an averaged spectrum of the EEG\nshould grow a peak at exactly 40 Hz: the auditory steady-state "
+        "response, an entrainment measured in the brain. It is about half a microvolt, so it takes minutes of sitting still; the lower plot "
+        "shows\nwhether the 40 Hz ratio is creeping up as windows accumulate. With four dry electrodes it may never clear the noise, which "
+        "is itself a lesson. The 50 Hz mains hum is notched out. Key c resets."),
 }
 ZOO_PROMPTS = [("sit still, eyes open", 6), ("blink three times", 6), ("look left, then right, twice", 6),
                ("clench your jaw for two seconds", 6), ("chew", 6), ("say a sentence aloud", 6),
@@ -381,7 +383,7 @@ class Window:
 
     def build_assr(self):
         gs = self.gs
-        ax = self.add(gs[0:3, :])
+        ax = self.add(gs[0:2, :])
         (line,) = ax.plot([], [], lw=1.5, color="#333")
         ax.set_xlim(20, 60); ax.set_ylim(-20, 20); ax.set_xlabel("frequency (Hz)"); ax.set_ylabel("power (dB)")
         ax.axvline(40, color="#c33", lw=1, ls="--"); _clean(ax)
@@ -391,6 +393,11 @@ class Window:
         title = ax.set_title("Averaged EEG spectrum, 20–60 Hz")
         snr = ax.text(0.99, 0.95, "", transform=ax.transAxes, ha="right", va="top", fontsize=11)
         note = ax.text(0.01, 0.97, "", transform=ax.transAxes, ha="left", va="top", fontsize=9, color="#555")
+        ax_h = self.add(gs[2, :])
+        (hline,) = ax_h.plot([], [], color="#c33", lw=1.5)
+        ax_h.axhline(0, color="#999", lw=1); ax_h.set_ylim(-4, 8); ax_h.set_xlim(0, 60)
+        ax_h.set_xlabel("windows averaged (one per second)"); ax_h.set_ylabel("40 Hz ratio (dB)")
+        ax_h.set_title("The 40 Hz ratio as the average grows: noise wanders around zero, a response climbs and stays"); _clean(ax_h)
         _, u_raw = self.raw_axes(gs[3, :], seconds=4, title="Raw EEG")
         if self.engine is not None:
             self.engine.set_assr(True)
@@ -402,11 +409,15 @@ class Window:
                 f, p, n, s = r
                 line.set_data(f, p); ax.set_ylim(*self.spectrum.ylim())
                 snr.set_text(f"40 Hz against neighbours: {s:+.1f} dB")
+                h = self.spectrum.history
+                if h:
+                    hline.set_data([a for a, _ in h], [b for _, b in h])
+                    ax_h.set_xlim(0, max(60, h[-1][0] + 5))
                 note.set_text("windows kept per channel: " + ", ".join(f"{CH[c]} {n[c]}" for c in range(4))
                               + f"   rejected {self.spectrum.rejected}")
             else:
                 note.set_text(f"no window kept yet   rejected {self.spectrum.rejected} (peak-to-peak over {self.spectrum.reject_uv:.0f} µV): keep still, improve the contacts")
-            title.set_text(f"Averaged EEG spectrum, 20–60 Hz   ({'tone on, key a stops it' if on else 'press a to start the 40 Hz tone'})")
+            title.set_text(f"Averaged EEG spectrum, 20–60 Hz, 4 s windows   ({'clicks on, key a stops them' if on else 'press a to start the 40 Hz clicks'})")
             u_raw()
         return upd
 
