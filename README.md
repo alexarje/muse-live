@@ -12,7 +12,7 @@ One script serves all of them: after connecting it probes the device and picks t
 
 - Muse 2016 (MU-02): verified, 256 EEG samples per second per channel and 52 per second from the accelerometer and gyroscope.
 - Muse 2 and Muse S (first and second generation): same protocol in muselsl, so they should work; not tried.
-- Muse S Athena (2025): muselsl 2.5.3 decodes its multiplexed protocol; EEG and motion arrive through the same path. Not yet tried in hand, so run `--test 8` first. Its near-infrared (fNIRS) channels are captured but not yet shown.
+- Muse S Athena (2025): verified, 256 EEG samples per second per channel, 52 from the motion sensors and 64 from the near-infrared optodes, which get their own panel. The script probes the headband itself before subscribing, since muselsl's own auto mode subscribes to the old characteristics first and fails on an Athena; `--model athena` or `--model legacy` skips the probe.
 
 ## Run
 

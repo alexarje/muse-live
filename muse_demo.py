@@ -150,8 +150,14 @@ class FakeMuse:
         time.sleep(seconds)
 
 
-def connect_muse(address):
-    from muselsl.devices import create_device   # picks the 2016/2/S protocol or the Athena's after connecting
+def connect_muse(address, model="auto"):
+    """Connect and start streaming. Returns (device, is_athena). device.adapter.pump() must be called often.
+
+    muselsl's own auto mode subscribes to the old EEG characteristics before it probes, which fails on an Athena,
+    so the probe is done here with a bare connection and no callbacks."""
+    from muselsl.muse import Muse
+    from muselsl.athena import Athena
+    from muselsl.devices import probe_athena
     from muselsl import backends
     if address is None:
         print("Scanning for a Muse (12 s)...")
@@ -160,16 +166,24 @@ def connect_muse(address):
             sys.exit("No Muse found. Is it switched on, unpaired from the system, and not in the phone app?")
         address = found[0]["address"]
         print(f"Found {found[0]['name']} at {address}")
-    muse = create_device(address, model="auto", callback_eeg=on_eeg, callback_acc=on_acc, callback_gyro=on_gyro, backend="bleak")
-    muse.callback_optics = on_optics      # used only if the probe finds an Athena; the older protocol has no optics
-    muse.enable_optics = True
-    print(f"Connecting to {address} (the first connection can take 20 s)...")
+    if model == "auto":
+        print(f"Probing {address} (the first connection can take 20 s)...")
+        probe = Muse(address, backend="bleak")
+        if not probe.connect(retries=3):
+            sys.exit("Could not connect. Turn the headband off and on, and try again.")
+        model = "athena" if probe_athena(probe.device) else "legacy"
+        probe.disconnect()
+    cls = Athena if model == "athena" else Muse
+    kwargs = dict(callback_eeg=on_eeg, callback_acc=on_acc, callback_gyro=on_gyro, backend="bleak")
+    if model == "athena":
+        kwargs["callback_optics"] = on_optics
+    muse = cls(address, **kwargs)
+    print(f"Connecting as {'Muse S Athena' if model == 'athena' else 'Muse (2016, 2 or S)'}...")
     if not muse.connect(retries=3):
         sys.exit("Could not connect. Turn the headband off and on, and try again.")
     muse.start()
-    kind = type(getattr(muse, "_impl", muse)).__name__
-    print(f"Streaming from a {'Muse S Athena' if kind == 'Athena' else 'Muse (2016, 2 or S)'}. Close the window or press Ctrl-C to stop.")
-    return muse, kind == "Athena"
+    print("Streaming. Close the window or press Ctrl-C to stop.")
+    return muse, model == "athena"
 
 
 # ----------------------------------------------------------------------------- analysis
@@ -503,6 +517,7 @@ def run_test(source, seconds, son):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--address", help="Bluetooth address of the Muse (otherwise scan)")
+    ap.add_argument("--model", choices=["auto", "legacy", "athena"], default="auto", help="force the protocol instead of probing")
     ap.add_argument("--sound", choices=["pitch", "am", "head"], help="start with this sonification on")
     ap.add_argument("--fake", action="store_true", help="synthetic signals instead of a headband")
     ap.add_argument("--fake-athena", action="store_true", help="synthetic signals including the Athena's fNIRS channels")
@@ -516,7 +531,7 @@ def main():
         athena = a.fake_athena
         source = FakeMuse(athena=athena)
     else:
-        muse, athena = connect_muse(a.address)
+        muse, athena = connect_muse(a.address, a.model)
         source = muse.adapter      # pump() runs the Bluetooth event loop; the callbacks fire inside it
     son = Sonifier(a.sound) if a.sound else None
 
