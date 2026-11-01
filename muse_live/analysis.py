@@ -59,6 +59,14 @@ def eeg_spectrogram(ch, seconds=20):
     return f[sel], t - t[-1], 10 * np.log10(S[sel] + 1e-12)
 
 
+def _detrend(x):
+    """Remove a straight line from each row."""
+    n = x.shape[1]
+    tt = np.arange(n) - (n - 1) / 2
+    slope = (x * tt).sum(axis=1, keepdims=True) / (tt ** 2).sum()
+    return x - x.mean(axis=1, keepdims=True) - slope * tt
+
+
 class HeadPose:
     """Tilt in degrees away from the orientation seen in the first second, and rotation speed in degrees per second."""
 
@@ -166,13 +174,16 @@ class NodDetector:
 
 
 class EpochAverager:
-    """Average the EEG around events given as monotonic times. mean() returns (lags_s, (4, L) mean in µV, n)."""
+    """Average the EEG around events given as monotonic times, channel by channel.
+    Each epoch is detrended and baseline-corrected; a channel's epoch is kept if its peak-to-peak stays under
+    `reject_uv`. mean() returns (lags_s, (4, L) mean in µV with NaN where nothing was kept, n per channel)."""
 
-    def __init__(self, pre=0.1, post=0.5):
-        self.pre, self.post = pre, post
+    def __init__(self, pre=0.1, post=0.5, reject_uv=200.0):
+        self.pre, self.post, self.reject_uv = pre, post, reject_uv
         self.L = int((pre + post) * FS)
         self.sum = np.zeros((4, self.L))
-        self.n = 0
+        self.n = np.zeros(4, dtype=int)
+        self.rejected = 0
         self.pending = []
 
     def add(self, t):
@@ -190,54 +201,61 @@ class EpochAverager:
             seg = eeg.slice(start, end_idx)
             if seg is None:
                 continue
+            seg = _detrend(seg)
             seg = seg - seg[:, :int(self.pre * FS)].mean(axis=1, keepdims=True)
-            if np.abs(seg).max() > 150:        # reject epochs with a blink or a big artefact
-                continue
-            self.sum += seg
-            self.n += 1
+            ok = np.ptp(seg, axis=1) < self.reject_uv
+            self.sum[ok] += seg[ok]
+            self.n[ok] += 1
+            self.rejected += int((~ok).sum())
         self.pending = keep
 
     def mean(self):
         lags = np.arange(self.L) / FS - self.pre
-        return lags, (self.sum / self.n if self.n else np.zeros_like(self.sum)), self.n
+        with np.errstate(invalid="ignore", divide="ignore"):
+            m = np.where(self.n[:, None] > 0, self.sum / np.maximum(self.n[:, None], 1), np.nan)
+        return lags, m, self.n
 
     def reset(self):
-        self.sum[:] = 0; self.n = 0; self.pending = []
+        self.sum[:] = 0; self.n[:] = 0; self.rejected = 0; self.pending = []
 
 
 class SpectrumAverager:
-    """Average power spectrum of 2 s windows, for the 40 Hz steady-state response."""
+    """Average power spectrum of 2 s windows, channel by channel, for the 40 Hz steady-state response.
+    A channel's window is kept if its peak-to-peak after detrending stays under `reject_uv`."""
 
-    def __init__(self):
+    def __init__(self, reject_uv=400.0):
+        self.reject_uv = reject_uv
         self.f = None
         self.sum = None
-        self.n = 0
+        self.n = np.zeros(4, dtype=int)
+        self.rejected = 0
         self.last_count = 0
 
     def update(self):
         if eeg.count < 2 * FS or eeg.count - self.last_count < FS:
             return
         self.last_count = eeg.count
-        x = eeg.last(2)
-        x = x - x.mean(axis=1, keepdims=True)
-        if np.abs(x).max() > 200:
+        x = _detrend(eeg.last(2))
+        ok = np.ptp(x, axis=1) < self.reject_uv
+        self.rejected += int((~ok).sum())
+        if not ok.any():
             return
         f, p = welch(x, fs=FS, nperseg=2 * FS, axis=1)
-        p = p.mean(axis=0)
         if self.sum is None:
             self.f, self.sum = f, np.zeros_like(p)
-        self.sum += p
-        self.n += 1
+        self.sum[ok] += p[ok]
+        self.n[ok] += 1
 
     def result(self):
-        """(f, dB spectrum 20 to 60 Hz, n, SNR at 40 Hz in dB against the neighbours) or None."""
-        if not self.n:
+        """(f, dB spectrum 20 to 60 Hz of the kept channels, n per channel, SNR at 40 Hz against the neighbours) or None."""
+        if not self.n.any():
             return None
-        p = self.sum / self.n
+        keep = self.n > 0
+        p = (self.sum[keep] / self.n[keep, None]).mean(axis=0)
         sel = (self.f >= 20) & (self.f <= 60)
         at = p[np.argmin(np.abs(self.f - 40))]
         nb = p[((self.f >= 34) & (self.f <= 38)) | ((self.f >= 42) & (self.f <= 46))].mean()
         return self.f[sel], 10 * np.log10(p[sel] + 1e-12), self.n, 10 * np.log10(at / (nb + 1e-12))
 
     def reset(self):
-        self.sum = None; self.n = 0
+        self.sum = None; self.n[:] = 0; self.rejected = 0

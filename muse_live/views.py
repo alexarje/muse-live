@@ -358,14 +358,24 @@ class Window:
         ax.axvspan(80, 130, color="#c33", alpha=0.08); ax.text(105, 13.5, "N1", ha="center", color="#c33", fontsize=9)
         ax.axvspan(160, 240, color="#36c", alpha=0.08); ax.text(200, 13.5, "P2", ha="center", color="#36c", fontsize=9)
         ax.legend(loc="lower right", ncol=4, frameon=False, fontsize=9); _clean(ax)
-        title = ax.set_title("Average EEG around each click (epochs with a blink are dropped)")
+        title = ax.set_title("Average EEG around each click")
+        note = ax.text(0.01, 0.97, "", transform=ax.transAxes, ha="left", va="top", fontsize=9, color="#555")
         _, u_raw = self.raw_axes(gs[3, :], seconds=4, title="Raw EEG (sit still, blink between clicks if you must)")
+        if self.engine is not None:
+            self.engine.set_erp(True)
 
         def upd():
             lags, m, n = self.epochs.mean()
-            for c in range(4): lines[c].set_data(lags * 1000, m[c])
+            for c in range(4):
+                lines[c].set_data(lags * 1000, m[c])
+            if n.max() > 0:
+                lim = max(8.0, min(60.0, 1.3 * np.nanmax(np.abs(m))))
+                ax.set_ylim(-lim, lim)
             on = self.engine is not None and self.engine.click_mode == "erp"
-            title.set_text(f"Average EEG around each click: n = {n}   ({'clicks on' if on else 'press e to start the clicks'})")
+            title.set_text(f"Average EEG around each click   ({'clicks on, key e stops them' if on else 'press e to start the clicks'})")
+            note.set_text("epochs kept per channel: " + ", ".join(f"{CH[c]} {n[c]}" for c in range(4))
+                          + f"   rejected {self.epochs.rejected} (peak-to-peak over {self.epochs.reject_uv:.0f} µV)"
+                          + ("   keep still, relax the jaw, improve the contacts" if self.epochs.rejected > 2 * max(1, n.max()) else ""))
             u_raw()
         return upd
 
@@ -377,7 +387,10 @@ class Window:
         ax.axvline(40, color="#c33", lw=1, ls="--"); _clean(ax)
         title = ax.set_title("Averaged EEG spectrum, 20–60 Hz")
         snr = ax.text(0.99, 0.95, "", transform=ax.transAxes, ha="right", va="top", fontsize=11)
+        note = ax.text(0.01, 0.97, "", transform=ax.transAxes, ha="left", va="top", fontsize=9, color="#555")
         _, u_raw = self.raw_axes(gs[3, :], seconds=4, title="Raw EEG")
+        if self.engine is not None:
+            self.engine.set_assr(True)
 
         def upd():
             r = self.spectrum.result()
@@ -385,8 +398,12 @@ class Window:
             if r is not None:
                 f, p, n, s = r
                 line.set_data(f, p); ax.set_ylim(p.min() - 3, p.max() + 3)
-                snr.set_text(f"40 Hz against neighbours: {s:+.1f} dB   (n = {n} windows)")
-            title.set_text(f"Averaged EEG spectrum, 20–60 Hz   ({'tone on' if on else 'press a to start the 40 Hz tone'})")
+                snr.set_text(f"40 Hz against neighbours: {s:+.1f} dB")
+                note.set_text("windows kept per channel: " + ", ".join(f"{CH[c]} {n[c]}" for c in range(4))
+                              + f"   rejected {self.spectrum.rejected}")
+            else:
+                note.set_text(f"no window kept yet   rejected {self.spectrum.rejected} (peak-to-peak over {self.spectrum.reject_uv:.0f} µV): keep still, improve the contacts")
+            title.set_text(f"Averaged EEG spectrum, 20–60 Hz   ({'tone on, key a stops it' if on else 'press a to start the 40 Hz tone'})")
             u_raw()
         return upd
 

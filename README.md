@@ -50,10 +50,10 @@ Switch with the buttons on the right or the key `v`.
 | EEG spectrogram | A scrolling spectrogram of the best channel, 0 to 40 Hz, 20 s | The picture students have read for sound, now of a brain signal; alpha is a band at 10 Hz |
 | artefact zoo | Prompts (blink, look left and right, clench, chew, speak, nod, eyes closed) over 8 s of raw EEG and the gyroscope, with detected blinks and clenches marked | Most of what an untrained eye calls brain activity is the face |
 | nod metronome | Rotation speed with detected nods; a metronome (`m`) that follows the nod rate; a histogram of nod minus click | The negative mean asynchrony, measured on the student's own head |
-| evoked response | Clicks about once a second (`e`); the EEG averaged around each click, n shown; epochs with a blink dropped | How event-related potentials are made, and why single trials show nothing; Bluetooth jitter smears the peaks |
-| 40 Hz entrainment | A 1 kHz tone pulsing at 40 Hz (`a`); the averaged EEG spectrum 20 to 60 Hz with the 40 Hz peak against its neighbours | The auditory steady-state response, an entrainment measured in the brain; marginal with four dry electrodes |
+| evoked response | Clicks about once a second, started with the view (`e` stops them); the EEG averaged around each click, channel by channel, with the kept and rejected counts shown | How event-related potentials are made, and why single trials show nothing; Bluetooth jitter smears the peaks |
+| 40 Hz entrainment | A 1 kHz tone pulsing at 40 Hz, started with the view (`a` stops it); the averaged EEG spectrum 20 to 60 Hz of the kept channels, with the 40 Hz peak against its neighbours | The auditory steady-state response, an entrainment measured in the brain; marginal with four dry electrodes |
 
-`c` resets the averages in the last two views.
+`c` resets the averages in the last two views. Both views detrend each epoch or window and keep a channel only if its peak-to-peak stays under 200 µV (epochs) or 400 µV (windows); the counts on the plot say how many were kept per channel and how many were rejected. If everything is rejected, the problem is the contacts or the jaw, not the brain.
 
 ## The sounds
 
