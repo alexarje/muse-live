@@ -26,6 +26,7 @@ from scipy.signal import butter, sosfiltfilt, welch
 
 FS = 256                     # EEG sampling rate, Hz
 FS_IMU = 52                  # accelerometer and gyroscope rate, Hz
+FS_OPT = 64                  # Athena near-infrared (optics) rate, Hz
 CH = ["TP9", "AF7", "AF8", "TP10"]   # left ear, left forehead, right forehead, right ear
 BANDS = [("delta", 1, 4), ("theta", 4, 8), ("alpha", 8, 13), ("beta", 13, 30)]
 RAW_SECONDS = 4              # window of raw traces shown
@@ -48,6 +49,10 @@ EXPLANATION = (
     "Sound: 1 is a tone whose pitch follows alpha (220–880 Hz); 2 is a 200 Hz tone whose loudness follows the raw EEG, so alpha "
     "is a tremolo and a blink a thump;\n"
     "3 is a tone whose pitch follows how far the head is tilted and whose loudness follows how fast it moves."
+)
+EXPLANATION_ATHENA = (
+    "\nThis is a Muse S Athena: the bottom row adds its five near-infrared light sensors (fNIRS), which read blood volume and "
+    "oxygenation in the frontal cortex. That signal changes over seconds, not milliseconds."
 )
 
 
@@ -82,7 +87,7 @@ class Ring:
 eeg = Ring(4, FS, HISTORY_SECONDS)
 acc = Ring(3, FS_IMU, HISTORY_SECONDS)      # g
 gyro = Ring(3, FS_IMU, HISTORY_SECONDS)     # degrees per second
-optics = Ring(4, 64, HISTORY_SECONDS)       # Athena only: raw near-infrared light readings
+optics = Ring(4, FS_OPT, HISTORY_SECONDS)   # Athena only: raw near-infrared light readings
 
 
 def on_eeg(data, timestamps):
@@ -109,8 +114,9 @@ class FakeMuse:
     """Synthetic signals: EEG noise with alpha on for 10 s and off for 10 s and a blink every 7 s;
     a head that tilts slowly and nods every 9 s."""
 
-    def __init__(self):
+    def __init__(self, athena=False):
         self.t = 0.0
+        self.athena = athena
         self.rng = np.random.default_rng(0)
 
     def pump(self, seconds):
@@ -134,6 +140,12 @@ class FakeMuse:
         g = np.vstack([np.gradient(a[0]) * FS_IMU * 57.3, np.gradient(a[1]) * FS_IMU * 57.3, np.zeros(ki)])
         g += 2 * self.rng.normal(0, 1, g.shape)
         on_acc(a, ti); on_gyro(g, ti)
+        if self.athena:
+            ko = max(1, int(round(seconds * FS_OPT)))
+            to = self.t + np.arange(ko) / FS_OPT
+            slow = 1 + 0.02 * np.sin(2 * np.pi * to / 25) + 0.004 * np.sin(2 * np.pi * 1.1 * to)   # breath-hold-like swell and a pulse ripple
+            o = np.vstack([slow * (40000 + 3000 * c) for c in range(4)]) + 30 * self.rng.normal(0, 1, (4, ko))
+            on_optics(o, to)
         self.t += k / FS
         time.sleep(seconds)
 
@@ -302,20 +314,22 @@ def build_window(source, fake, son=None, athena=False):
     from matplotlib.widgets import RadioButtons
 
     plt.rcParams.update({"font.size": 10, "axes.titlesize": 11, "toolbar": "None"})
-    fig = plt.figure(figsize=(12, 10.5))
+    fig = plt.figure(figsize=(12, 12.5 if athena else 10.5))
     try:
         fig.canvas.manager.set_window_title("Muse live")
     except Exception:
         pass
     fig.text(0.5, 0.98, "Muse live: brain and head", ha="center", va="top", fontsize=15, weight="bold")
-    fig.text(0.03, 0.945, EXPLANATION, ha="left", va="top", fontsize=9.2, linespacing=1.4,
+    fig.text(0.03, 0.945, EXPLANATION + (EXPLANATION_ATHENA if athena else ""), ha="left", va="top", fontsize=9.2, linespacing=1.4,
              bbox=dict(boxstyle="round,pad=0.6", facecolor="#f3f3f3", edgecolor="none"))
-    gs = fig.add_gridspec(3, 2, height_ratios=[1.3, 1, 0.8], hspace=0.5, wspace=0.25, top=0.79, bottom=0.06)
+    rows = [1.3, 1, 0.8] + ([0.9] if athena else [])
+    gs = fig.add_gridspec(len(rows), 2, height_ratios=rows, hspace=0.5, wspace=0.25, top=0.82 if athena else 0.79, bottom=0.05)
     ax_raw = fig.add_subplot(gs[0, :])
     ax_bar = fig.add_subplot(gs[1, 0])
     ax_hist = fig.add_subplot(gs[1, 1])
     ax_imu = fig.add_subplot(gs[2, 0])
     ax_ctl = fig.add_subplot(gs[2, 1])
+    ax_opt = fig.add_subplot(gs[3, :]) if athena else None
 
     offsets = np.arange(4)[::-1] * 100
     t_raw = np.arange(FS * RAW_SECONDS) / FS - RAW_SECONDS
@@ -344,6 +358,17 @@ def build_window(source, fake, son=None, athena=False):
     ax_imu.legend(loc="upper left", ncol=3, frameon=False, fontsize=8)
     for s in ("top", "right"): ax_imu.spines[s].set_visible(False)
     tilt_text = ax_imu.text(0.99, 0.95, "", transform=ax_imu.transAxes, ha="right", va="top", fontsize=9, color="#555")
+
+    opt_lines, opt_note = [], None
+    if ax_opt is not None:
+        t_opt = np.arange(FS_OPT * 30) / FS_OPT - 30
+        opt_lines = [ax_opt.plot(t_opt, np.zeros_like(t_opt), lw=1, label=f"optode {c + 1}")[0] for c in range(4)]
+        ax_opt.set_xlim(-30, 0); ax_opt.set_ylim(-5, 5); ax_opt.set_xlabel("seconds"); ax_opt.set_ylabel("% change")
+        ax_opt.set_title("Athena fNIRS: near-infrared light through the forehead, % change from the last 30 s "
+                         "(blood volume and oxygen; slow, so hold your breath for 20 s or do mental arithmetic)")
+        ax_opt.legend(loc="upper left", ncol=4, frameon=False, fontsize=8)
+        for s in ("top", "right"): ax_opt.spines[s].set_visible(False)
+        opt_note = ax_opt.text(0.99, 0.95, "", transform=ax_opt.transAxes, ha="right", va="top", fontsize=9, color="#555")
 
     ax_ctl.set_title("Sound (click, or press the key)")
     ax_ctl.set_facecolor("#f3f3f3")
@@ -407,6 +432,17 @@ def build_window(source, fake, son=None, athena=False):
             tilt_text.set_text(f"tilt {tilt:4.0f}°   turning {speed:5.0f}°/s")
             if state["son"] is not None:
                 state["son"].set_head(tilt, speed)
+        if ax_opt is not None:
+            o = optics.last(30)
+            if o.shape[1] > FS_OPT * 2:
+                base = np.median(o, axis=1, keepdims=True)
+                pct = 100 * (o - base) / np.where(base == 0, 1, base)
+                to = t_opt[-o.shape[1]:]
+                for c in range(4):
+                    opt_lines[c].set_data(to, pct[c])
+                opt_note.set_text(f"{optics.count / FS_OPT:5.1f} s of optics at {FS_OPT} Hz")
+            elif opt_note is not None:
+                opt_note.set_text("waiting for optics data" + (" (synthetic)" if fake else ""))
         src = "synthetic signal" if fake else ("Muse S Athena" if athena else "Muse")
         status.set_text(f"{src}   EEG {eeg.count / FS:6.1f} s   motion {acc.count / FS_IMU:6.1f} s   {time.strftime('%H:%M:%S')}")
         fig.canvas.draw_idle()
@@ -426,13 +462,13 @@ def run_window(source, fake, son, athena=False):
         tick.state["son"].close()
 
 
-def save_frame(source, fake, path):
+def save_frame(source, fake, path, athena=False):
     """Render one frame without a display, after pumping for 12 s."""
     import matplotlib
     matplotlib.use("Agg")
     for _ in range(120):
         source.pump(0.1)
-    fig, tick = build_window(source, fake)
+    fig, tick = build_window(source, fake, None, athena)
     for _ in range(3):
         tick()
     fig.savefig(path, dpi=110)
@@ -469,13 +505,16 @@ def main():
     ap.add_argument("--address", help="Bluetooth address of the Muse (otherwise scan)")
     ap.add_argument("--sound", choices=["pitch", "am", "head"], help="start with this sonification on")
     ap.add_argument("--fake", action="store_true", help="synthetic signals instead of a headband")
+    ap.add_argument("--fake-athena", action="store_true", help="synthetic signals including the Athena's fNIRS channels")
     ap.add_argument("--test", type=float, metavar="SECONDS", help="capture this long, print statistics, no window")
     ap.add_argument("--save", metavar="PNG", help="render one frame to a file instead of opening a window")
     a = ap.parse_args()
 
     muse, athena = None, False
-    if a.fake:
-        source = FakeMuse()
+    if a.fake or a.fake_athena:
+        a.fake = True
+        athena = a.fake_athena
+        source = FakeMuse(athena=athena)
     else:
         muse, athena = connect_muse(a.address)
         source = muse.adapter      # pump() runs the Bluetooth event loop; the callbacks fire inside it
@@ -485,7 +524,7 @@ def main():
         if a.test:
             run_test(source, a.test, son)
         elif a.save:
-            save_frame(source, a.fake, a.save)
+            save_frame(source, a.fake, a.save, athena)
         else:
             run_window(source, a.fake, son, athena)
     except KeyboardInterrupt:
