@@ -100,28 +100,33 @@ class FaceDetector:
             return events
         x = eeg.last(3)
         start = eeg.count - x.shape[1]
-        fore = x[1:3].mean(axis=0)
-        fore = fore - fore.mean()
-        slow = sosfiltfilt(SOS_SLOW, fore)
-        recent = slice(-int(0.3 * FS), None)
-        mad = np.median(np.abs(slow - np.median(slow))) * 1.4826 + 1e-6
-        thr = max(self.blink_thr, 5 * mad)
-        seg = np.abs(slow[recent])
-        if seg.max() > thr:
-            idx = start + x.shape[1] - int(0.3 * FS) + int(np.argmax(seg))
-            if idx - self.last_blink > int(0.4 * FS):
-                self.last_blink = idx
-                events.append(("blink", idx))
         fast = sosfiltfilt(SOS_FAST, x - x.mean(axis=1, keepdims=True), axis=1)
         rms_all = np.sqrt((fast ** 2).mean(axis=0))
         base = np.median(rms_all)
         self.clench_base = base if self.clench_base is None else 0.95 * self.clench_base + 0.05 * base
         now = np.sqrt((fast[:, -int(0.15 * FS):] ** 2).mean())
-        if now > max(4 * self.clench_base, 12.0):
+        recent_fast = np.sqrt((fast[:, -int(0.6 * FS):] ** 2).mean())
+        clenching = now > max(4 * self.clench_base, 12.0)
+        if clenching:
             idx = eeg.count - int(0.075 * FS)
             if idx - self.last_clench > int(0.5 * FS):
                 self.last_clench = idx
                 events.append(("clench", idx))
+        if recent_fast > max(2.5 * self.clench_base, 8.0) or now > max(2.0 * self.clench_base, 8.0):
+            return events                  # the edges of a muscle burst leak into the slow band; no blink call now
+        fore = x[1:3].mean(axis=0)
+        fore = fore - fore.mean()
+        slow = sosfiltfilt(SOS_SLOW, fore)
+        lo, hi = int(0.45 * FS), int(0.1 * FS)   # look 0.1 to 0.45 s back, so a burst starting now has shown itself
+        recent = slice(-lo, -hi)
+        mad = np.median(np.abs(slow - np.median(slow))) * 1.4826 + 1e-6
+        thr = max(self.blink_thr, 5 * mad)
+        seg = np.abs(slow[recent])
+        if seg.max() > thr:
+            idx = start + x.shape[1] - lo + int(np.argmax(seg))
+            if idx - self.last_blink > int(0.4 * FS):
+                self.last_blink = idx
+                events.append(("blink", idx))
         return events
 
 

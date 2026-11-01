@@ -1,18 +1,18 @@
 # Muse live
 
-A single Python script that connects to a Muse headband over Bluetooth LE and shows, in one window, the four raw EEG traces, the power in the delta, theta, alpha and beta bands, alpha power over the last minute, and the head's motion from the built-in accelerometer. Three sonifications can be switched on from buttons in the window. Made for teaching: the point of the demo is the eyes-open, eyes-closed difference, where alpha rises within a second or two of closing the eyes, and the artefacts that blinks, jaw tension and head movements leave in the signal.
+Live signals from a Muse headband in one window, for teaching: the four EEG channels, band powers, alpha over time, head motion from the accelerometer and gyroscope, the Athena's near-infrared channels, six views that each make one point about brain signals, eight sonifications, and recording to CSV. Made for the course MUS2640 Sensing Sound and Music at the University of Oslo.
 
 It talks to the headband directly through [bleak](https://github.com/hbldh/bleak) and the Muse protocol implementations in [muselsl](https://github.com/alexandrebarachant/muse-lsl). No browser, no Web Bluetooth, no LSL stream to set up.
 
-![The window on a synthetic signal](docs/window.png)
+![The overview on a synthetic signal](docs/window.png)
 
 ## Which headbands
 
-One script serves all of them: after connecting it probes the device and picks the decoder.
+One script serves all of them. After connecting it reads the device's characteristic table and picks the decoder.
 
-- Muse 2016 (MU-02): verified, 256 EEG samples per second per channel and 52 per second from the accelerometer and gyroscope.
-- Muse 2 and Muse S (first and second generation): same protocol in muselsl, so they should work; not tried.
-- Muse S Athena (2025): verified, 256 EEG samples per second per channel, 52 from the motion sensors and 64 from the near-infrared optodes, which get their own panel. The script probes the headband itself before subscribing, since muselsl's own auto mode subscribes to the old characteristics first and fails on an Athena; `--model athena` or `--model legacy` skips the probe.
+- Muse 2016 (MU-02): verified. 256 EEG samples per second per channel, 52 from the accelerometer and gyroscope.
+- Muse S Athena (2025): verified. The same, plus 64 samples per second from the near-infrared optodes, shown as a row in the overview.
+- Muse 2 and Muse S (first and second generation): same protocol as the 2016 model in muselsl, so they should work; not tried.
 
 ## Run
 
@@ -22,35 +22,54 @@ python3 -m venv .venv
 .venv/bin/python muse_demo.py
 ```
 
-The script scans for 12 s, connects to the first Muse it finds, and opens the window. To skip the scan, give the address:
+The script scans for 12 s, connects to the first Muse it finds, and opens the window. To skip the scan give the address; to skip the probe give the model:
 
 ```bash
 .venv/bin/python muse_demo.py --address AA:BB:CC:DD:EE:FF
+.venv/bin/python muse_demo.py --address AA:BB:CC:DD:EE:FF --model athena
 ```
 
-Other modes:
+Other options:
 
 ```bash
-.venv/bin/python muse_demo.py --sound am        # start with a sonification on (pitch, am or head)
-.venv/bin/python muse_demo.py --test 8          # capture 8 s, print sample counts and statistics, no window
-.venv/bin/python muse_demo.py --fake            # synthetic signals, no headband
-.venv/bin/python muse_demo.py --fake --sound head --test 5   # hear a sonification without a headband
-.venv/bin/python muse_demo.py --fake --save frame.png
+.venv/bin/python muse_demo.py --view zoo          # start in a view: overview, spectrogram, zoo, nod, erp, assr
+.venv/bin/python muse_demo.py --sound brainmix    # start with a sonification on
+.venv/bin/python muse_demo.py --test 8            # capture 8 s, print sample counts and statistics, no window
+.venv/bin/python muse_demo.py --fake              # synthetic signals, no headband (also --fake-athena)
+.venv/bin/python muse_demo.py --fake --view erp --save erp.png   # render one frame of a view to a file
+.venv/bin/python muse_demo.py --no-sound          # no audio stream at all
 ```
 
-## The window
+## The views
 
-- Top: the four EEG channels, TP9 and TP10 behind the ears, AF7 and AF8 on the forehead, band-pass filtered 1 to 40 Hz. A red channel label means a poor contact: wet the skin, press the band, or move hair away.
-- Middle left: band power in dB over the last 2 s, mean of the four channels, alpha highlighted.
-- Middle right: alpha power over the last minute. Ask the wearer to close their eyes for 15 s, then open them, and point at the step.
-- Bottom left: the accelerometer's three axes in g. Tilting the head shifts the lines; a nod makes a bump. The corner shows the tilt away from the starting orientation and the rotation speed from the gyroscope.
-- Bottom right: the sound buttons. The keys 0, 1, 2 and 3 do the same.
+Switch with the buttons on the right or the key `v`.
 
-Sound mappings:
+| View | What it shows | The point |
+|---|---|---|
+| overview | Raw EEG, band powers, alpha over a minute, accelerometer; the Athena's fNIRS row | Eyes closed for 15 s and alpha rises; a red label is a poor contact |
+| EEG spectrogram | A scrolling spectrogram of the best channel, 0 to 40 Hz, 20 s | The picture students have read for sound, now of a brain signal; alpha is a band at 10 Hz |
+| artefact zoo | Prompts (blink, look left and right, clench, chew, speak, nod, eyes closed) over 8 s of raw EEG and the gyroscope, with detected blinks and clenches marked | Most of what an untrained eye calls brain activity is the face |
+| nod metronome | Rotation speed with detected nods; a metronome (`m`) that follows the nod rate; a histogram of nod minus click | The negative mean asynchrony, measured on the student's own head |
+| evoked response | Clicks about once a second (`e`); the EEG averaged around each click, n shown; epochs with a blink dropped | How event-related potentials are made, and why single trials show nothing; Bluetooth jitter smears the peaks |
+| 40 Hz entrainment | A 1 kHz tone pulsing at 40 Hz (`a`); the averaged EEG spectrum 20 to 60 Hz with the 40 Hz peak against its neighbours | The auditory steady-state response, an entrainment measured in the brain; marginal with four dry electrodes |
+
+`c` resets the averages in the last two views.
+
+## The sounds
+
+Switch with the buttons or the keys `0` to `7`. All of them render in one audio callback.
 
 1. Pitch follows alpha: a sine from 220 Hz at the lowest alpha of the last minute to 880 Hz at the highest.
-2. Tremolo of the raw EEG: a 200 Hz tone whose loudness follows the raw EEG of the best-contact channel, read in real time, so the alpha rhythm is a 10 Hz tremolo and a blink a thump.
-3. Head tilt and motion: pitch follows how far the head is tilted from where it started (0 to 60 degrees over 220 to 880 Hz), loudness follows how fast it turns.
+2. Tremolo of the raw EEG: a 200 Hz tone whose loudness follows the raw EEG of the best channel in real time; alpha is a 10 Hz tremolo, a blink a thump.
+3. Head tilt and motion: pitch from how far the head is tilted from where it started, loudness from how fast it turns.
+4. Head theremin: the same, with the pitch snapped to a pentatonic scale.
+5. Brain mix: a four-layer loop at 120 BPM, bass from delta, pad from theta, arpeggio from alpha, hi-hats from beta, each at a volume set by its band's power against the last minute's range. Nothing is controlled, and that is the lesson.
+6. Left–right alpha pans a tone: alpha on TP9 and AF7 against AF8 and TP10 sets the stereo position. It drifts with contact quality alone, which is the argument against reading emotion from frontal asymmetry.
+7. Face drums: a blink triggers a kick, a jaw clench a snare. A brain–computer interface in the loosest sense, and a demonstration of why real ones are hard.
+
+## Recording
+
+`r` starts and stops a recording; `space` writes a marker (in the artefact zoo it carries the current prompt). Each recording is a folder under `recordings/` with `eeg.csv` (256 Hz), `acc.csv` and `gyro.csv` (52 Hz), `optics.csv` (64 Hz, Athena), `bands.csv` (one row per screen update) and `markers.csv`, all with seconds since the recording started in the first column.
 
 ## Before a demonstration
 
@@ -58,15 +77,17 @@ Sound mappings:
 2. The Muse must not be paired in the computer's Bluetooth settings. A system pairing holds the connection and nothing else can reach the device, which is also why browser tools such as EEGEdu show nothing in that state. On Linux: `bluetoothctl remove <address>`.
 3. Close the Muse app on any phone nearby; it grabs the headband as soon as it sees it.
 4. Only one program can hold the headband. The first connection after it wakes can take 20 s.
-5. Run `--test 8` once. Expect about 2048 EEG samples per channel and 416 from the accelerometer. Standard deviations above a few hundred microvolts mean a poor contact, or that the band is lying on the table.
+5. Run `--test 8` once. Expect about 2048 EEG samples per channel and 416 from the accelerometer (and 512 optics samples on an Athena). Standard deviations above a few hundred microvolts mean a poor contact, or that the band is lying on the table.
+6. Try the window on the synthetic signal first (`--fake`), so that the views and keys are familiar before a class.
 
 ## Notes
 
+- Code: `muse_live/signals.py` (ring buffers, connection, the synthetic headband), `analysis.py` (filters, band powers, head pose, blink and clench and nod detectors, online averaging), `sound.py` (the audio engine), `record.py`, `views.py` (the window); `muse_demo.py` is the entry point.
 - The pin `bitstring<5` in requirements.txt matters: muselsl's packet decoder uses a call that bitstring 5 removed, and without the pin the headband connects but no samples ever arrive.
-- Sound uses [sounddevice](https://python-sounddevice.readthedocs.io/), which needs the PortAudio library (`libportaudio2` on Debian and Ubuntu).
-- Plotting uses matplotlib's Tk backend; a machine without `python3-tk` can still use `--test` and `--save`.
-- The script does not record. For recording, muselsl's own `muselsl stream` and `muselsl record` do that.
+- muselsl's own auto-detection subscribes to the old EEG characteristics before it probes, which fails on an Athena; this script probes with a bare connection first.
+- Sound uses [sounddevice](https://python-sounddevice.readthedocs.io/), which needs the PortAudio library (`libportaudio2` on Debian and Ubuntu). Plotting uses matplotlib's Tk backend (`python3-tk`).
+- Timing: click times are taken from the audio clock and EEG sample times from their arrival over Bluetooth, so the evoked-response and asynchrony views carry a jitter of some tens of milliseconds. Good enough to see the effects, not good enough to publish.
 
 ## Licence
 
-MIT. Written by Alexander Refsum Jensenius with Claude, for the course MUS2640 Sensing Sound and Music at the University of Oslo.
+MIT. Written by Alexander Refsum Jensenius with Claude.
