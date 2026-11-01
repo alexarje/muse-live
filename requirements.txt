@@ -1,0 +1,8 @@
+bitstring==4.4.0
+bleak==3.0.2
+matplotlib==3.11.2
+muselsl==2.5.3
+numpy==2.4.6
+pylsl==1.18.6
+scipy==1.17.1
+sounddevice==0.5.6
