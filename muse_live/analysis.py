@@ -1,6 +1,6 @@
 """Analysis: filters, band powers, head pose, detectors for blinks, clenches and nods, and online averaging."""
 import numpy as np
-from scipy.signal import butter, sosfiltfilt, welch, spectrogram as sp_spectrogram
+from scipy.signal import butter, sosfiltfilt, welch, iirnotch, filtfilt, spectrogram as sp_spectrogram
 
 from .signals import FS, FS_IMU, BANDS, eeg, acc, gyro
 
@@ -8,6 +8,7 @@ SOS_WIDE = butter(4, [1, 40], btype="band", fs=FS, output="sos")
 SOS_SLOW = butter(2, [0.5, 6], btype="band", fs=FS, output="sos")
 SOS_FAST = butter(4, [20, 45], btype="band", fs=FS, output="sos")
 BAD_CONTACT_UV = 150
+MAINS_HZ = 50.0          # set to 60 in the Americas and parts of Asia
 
 
 def filtered_raw(seconds=4):
@@ -219,9 +220,19 @@ class EpochAverager:
         self.sum[:] = 0; self.n[:] = 0; self.rejected = 0; self.pending = []
 
 
+def notch_mains(x):
+    """Remove the mains hum (and its second harmonic) from each row."""
+    for f0 in (MAINS_HZ, 2 * MAINS_HZ):
+        if f0 < FS / 2:
+            b, a = iirnotch(f0, 30.0, fs=FS)
+            x = filtfilt(b, a, x, axis=-1)
+    return x
+
+
 class SpectrumAverager:
     """Average power spectrum of 2 s windows, channel by channel, for the 40 Hz steady-state response.
-    A channel's window is kept if its peak-to-peak after detrending stays under `reject_uv`."""
+    The mains hum is notched out first; a channel's window is kept if its peak-to-peak after detrending stays
+    under `reject_uv`."""
 
     def __init__(self, reject_uv=400.0):
         self.reject_uv = reject_uv
@@ -235,7 +246,7 @@ class SpectrumAverager:
         if eeg.count < 2 * FS or eeg.count - self.last_count < FS:
             return
         self.last_count = eeg.count
-        x = _detrend(eeg.last(2))
+        x = _detrend(notch_mains(eeg.last(2)))
         ok = np.ptp(x, axis=1) < self.reject_uv
         self.rejected += int((~ok).sum())
         if not ok.any():
@@ -256,6 +267,16 @@ class SpectrumAverager:
         at = p[np.argmin(np.abs(self.f - 40))]
         nb = p[((self.f >= 34) & (self.f <= 38)) | ((self.f >= 42) & (self.f <= 46))].mean()
         return self.f[sel], 10 * np.log10(p[sel] + 1e-12), self.n, 10 * np.log10(at / (nb + 1e-12))
+
+    def ylim(self):
+        """Axis limits from the 20 to 46 Hz region, so that the mains residue does not set the scale."""
+        if not self.n.any():
+            return None
+        keep = self.n > 0
+        p = (self.sum[keep] / self.n[keep, None]).mean(axis=0)
+        sel = (self.f >= 20) & (self.f <= 46)
+        q = 10 * np.log10(p[sel] + 1e-12)
+        return q.min() - 3, q.max() + 3
 
     def reset(self):
         self.sum = None; self.n[:] = 0; self.rejected = 0

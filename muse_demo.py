@@ -61,11 +61,14 @@ def main():
     ap.add_argument("--view", choices=VIEWS, default="overview", help="the view to start in")
     ap.add_argument("--sound", choices=[m for m in SOUND_MODES if m], help="start with this sonification on")
     ap.add_argument("--no-sound", action="store_true", help="do not open an audio stream at all")
+    ap.add_argument("--mains", type=float, default=50.0, help="mains frequency to notch out, 50 or 60 Hz")
     ap.add_argument("--fake", action="store_true", help="synthetic signals instead of a headband")
     ap.add_argument("--fake-athena", action="store_true", help="synthetic signals including the Athena's fNIRS channels")
     ap.add_argument("--test", type=float, metavar="SECONDS", help="capture this long, print statistics, no window")
     ap.add_argument("--save", metavar="PNG", help="render one frame of the chosen view to a file instead of opening a window")
     a = ap.parse_args()
+    import muse_live.analysis as analysis
+    analysis.MAINS_HZ = a.mains
 
     muse, athena = None, False
     if a.fake or a.fake_athena:

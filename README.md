@@ -53,7 +53,7 @@ Switch with the buttons on the right or the key `v`.
 | evoked response | Clicks about once a second, started with the view (`e` stops them); the EEG averaged around each click, channel by channel, with the kept and rejected counts shown | How event-related potentials are made, and why single trials show nothing; Bluetooth jitter smears the peaks |
 | 40 Hz entrainment | A 1 kHz tone pulsing at 40 Hz, started with the view (`a` stops it); the averaged EEG spectrum 20 to 60 Hz of the kept channels, with the 40 Hz peak against its neighbours | The auditory steady-state response, an entrainment measured in the brain; marginal with four dry electrodes |
 
-`c` resets the averages in the last two views. Both views detrend each epoch or window and keep a channel only if its peak-to-peak stays under 200 µV (epochs) or 400 µV (windows); the counts on the plot say how many were kept per channel and how many were rejected. If everything is rejected, the problem is the contacts or the jaw, not the brain.
+`c` resets the averages in the last two views. The 40 Hz view notches out the mains hum (50 Hz by default, `--mains 60` elsewhere) before averaging, since the body picks it up as an antenna and it would otherwise dominate the spectrum; the band is marked on the plot. Both views detrend each epoch or window and keep a channel only if its peak-to-peak stays under 200 µV (epochs) or 400 µV (windows); the counts on the plot say how many were kept per channel and how many were rejected. If everything is rejected, the problem is the contacts or the jaw, not the brain.
 
 ## The sounds
 

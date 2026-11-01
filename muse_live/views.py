@@ -39,7 +39,7 @@ HEADERS = {
     "assr": (
         "A 1 kHz tone pulses 40 times a second (key a). The auditory brainstem and cortex follow that rhythm, so an averaged spectrum "
         "of the EEG should grow a peak at exactly 40 Hz.\nThis is the auditory steady-state response, an entrainment measured in the "
-        "brain. With four dry electrodes it is marginal; the number on the right is the peak against its\nneighbours. Key c resets."),
+        "brain. With four dry electrodes it is marginal; the number on the right is the peak against its\nneighbours. The tall peak at 50 Hz is the mains hum, picked up by the body as an antenna, not the brain; it is notched out of the average. Key c resets."),
 }
 ZOO_PROMPTS = [("sit still, eyes open", 6), ("blink three times", 6), ("look left, then right, twice", 6),
                ("clench your jaw for two seconds", 6), ("chew", 6), ("say a sentence aloud", 6),
@@ -385,6 +385,9 @@ class Window:
         (line,) = ax.plot([], [], lw=1.5, color="#333")
         ax.set_xlim(20, 60); ax.set_ylim(-20, 20); ax.set_xlabel("frequency (Hz)"); ax.set_ylabel("power (dB)")
         ax.axvline(40, color="#c33", lw=1, ls="--"); _clean(ax)
+        from .analysis import MAINS_HZ
+        ax.axvspan(MAINS_HZ - 1.5, MAINS_HZ + 1.5, color="#999", alpha=0.15)
+        ax.text(MAINS_HZ, 0.02, f"mains {MAINS_HZ:.0f} Hz, notched", transform=ax.get_xaxis_transform(), ha="center", va="bottom", fontsize=8, color="#777")
         title = ax.set_title("Averaged EEG spectrum, 20–60 Hz")
         snr = ax.text(0.99, 0.95, "", transform=ax.transAxes, ha="right", va="top", fontsize=11)
         note = ax.text(0.01, 0.97, "", transform=ax.transAxes, ha="left", va="top", fontsize=9, color="#555")
@@ -397,7 +400,7 @@ class Window:
             on = self.engine is not None and self.engine.assr_on
             if r is not None:
                 f, p, n, s = r
-                line.set_data(f, p); ax.set_ylim(p.min() - 3, p.max() + 3)
+                line.set_data(f, p); ax.set_ylim(*self.spectrum.ylim())
                 snr.set_text(f"40 Hz against neighbours: {s:+.1f} dB")
                 note.set_text("windows kept per channel: " + ", ".join(f"{CH[c]} {n[c]}" for c in range(4))
                               + f"   rejected {self.spectrum.rejected}")
