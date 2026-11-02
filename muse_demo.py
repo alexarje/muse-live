@@ -87,6 +87,8 @@ def main():
                 source.engine = engine
         except Exception as e:
             print(f"Sound is off ({e}).")
+            if "PortAudio" in str(e):
+                print("The PortAudio library is missing. On Debian and Ubuntu: sudo apt install libportaudio2, then start again.")
     recorder = None
     try:
         if a.test:
